@@ -592,7 +592,7 @@ class Word {
         this.element.classList.add(word);
         this.element.id = word;
         this.element.innerHTML = word;
-        this.element.draggable = "true";
+        this.element.draggable = true;
         this.element.style.position = "absolute";
         this.element.addEventListener("dragstart", handleDragStart);
         this.element.addEventListener("dragend", handleDragEnd);
@@ -618,34 +618,52 @@ class Word {
     }
 }
 function handleDragStart(event) {
-    event.dataTransfer.setData("text/plain", // "word1,x,y;"
-    `${this.id};${event.clientX - event.srcElement.getBoundingClientRect().x};${event.clientY - event.srcElement.getBoundingClientRect().y}`);
+    this.dataset.tempLeft = String(event.clientX - event.target.getBoundingClientRect().x);
+    this.dataset.tempTop = String(event.clientY - event.target.getBoundingClientRect().y);
+    if (event.dataTransfer) event.dataTransfer.setData("text/plain", // "word1,x,y;"
+    `${this.id};${event.clientX - event.target.getBoundingClientRect().x};${event.clientY - event.target.getBoundingClientRect().y}`);
+    else console.log("Error: no dataTransfer object in handleDragStart");
 }
 function handleDrag(event) {
-    this.last_x = event.clientX;
-    this.last_y = event.clientY;
+    const hasMovement = event.clientX !== Number(this.dataset.lastX) || event.clientY !== Number(this.dataset.lastY);
+    this.dataset.lastX = String(event.clientX);
+    this.dataset.lastY = String(event.clientY);
+    return;
 }
 function handleDragEnd(event) {
     const poemEl = document.getElementById("poem");
     const poemRect = poemEl?.getBoundingClientRect();
     const wordRect = event.srcElement?.getBoundingClientRect();
-    const isClickInBox = this.last_x > poemRect.x && this.last_y > poemRect.y && this.last_x < poemRect.x + poemRect.width && this.last_y < poemRect.y + poemRect.height;
+    const last_x = Number(this.dataset.lastX);
+    const last_y = Number(this.dataset.lastY);
+    if (last_x === undefined || last_y === undefined) {
+        console.log("Error: last_x or last_y is undefined");
+        return;
+    }
+    const srcElement = event.srcElement;
+    const leftTemp = Number(srcElement.dataset.leftTemp);
+    const topTemp = Number(srcElement.dataset.topTemp);
+    const isClickInBox = poemRect && last_x > poemRect.x && last_y > poemRect.y && last_x < poemRect.x + poemRect.width && last_y < poemRect.y + poemRect.height;
     let newX, newY;
     // the -3 is somehow related to the border width or something. It keeps the div centered.
-    if (event.srcElement.style.destId !== "poem") {
-        newX = this.last_x - Number(event.srcElement.style.leftTemp) - 3;
-        newY = this.last_y - Number(event.srcElement.style.topTemp) - 3;
+    if (srcElement.dataset.destId !== "poem") {
+        newX = last_x - leftTemp - 2;
+        newY = last_y - topTemp - 2;
     } else {
-        newX = this.last_x - poemRect.x - Number(event.srcElement.style.leftTemp) - 3;
-        newY = this.last_y - poemRect.y - Number(event.srcElement.style.topTemp) - 3;
+        const poemRect = poemEl?.getBoundingClientRect(); // Add null check for poemRect
+        newX = last_x - (poemRect?.x ?? 0) - leftTemp - 2;
+        newY = last_y - (poemRect?.y ?? 0) - topTemp - 2;
     }
-    event.srcElement.style.left = `${newX}px`;
-    event.srcElement.style.top = `${newY}px`;
-    event.srcElement.style.leftTemp = 0;
-    event.srcElement.style.topTemp = 0;
+    srcElement.style.left = `${newX}px`;
+    srcElement.style.top = `${newY}px`;
+    srcElement.dataset.leftTemp = "0";
+    srcElement.dataset.topTemp = "0";
     // Modify our internal Word representation
-    Word.elementToWord.get(event.srcElement).x = newX;
-    Word.elementToWord.get(event.srcElement).y = newY;
+    const word = Word.elementToWord.get(srcElement);
+    if (word) {
+        word.x = newX;
+        word.y = newY;
+    }
     saveWordsInBox();
 }
 function rectIntersects(rect1, rect2) {
@@ -658,15 +676,20 @@ function isWordInBox(wordEl) {
     const poemEl = document.getElementById("poem");
     const poemRect = poemEl?.getBoundingClientRect();
     const wordRect = wordEl?.getBoundingClientRect();
-    return rectContains(poemRect, wordRect);
+    if (poemRect && wordRect) return rectContains(poemRect, wordRect);
+    return false;
 }
 function saveWordsInBox() {
-    let wordsString = "/atomicpoems/?words=";
+    let wordsString = "/?words=";
     const poemEl = document.getElementById("poem");
     const poemRect = poemEl?.getBoundingClientRect();
+    if (poemRect === undefined) {
+        console.log("Error: poemRect is undefined");
+        return;
+    }
     Array.from(document.getElementsByClassName("type-word")).forEach((wordEl)=>{
         const wordRect = wordEl?.getBoundingClientRect();
-        if (wordEl.parentNode.id === "poem") // "word,x,y;"
+        if (wordEl.parentNode && wordEl.parentNode.id === "poem") // "word,x,y;"
         wordsString += `${wordEl.innerHTML},${Math.round(wordRect.x - poemRect.x - 3)},${Math.round(wordRect.y - poemRect.y - 3)};`;
     });
     history.replaceState(null, "", wordsString);
@@ -693,15 +716,21 @@ function addStringsToPage(wordList) {
     }
     const bodyRect = document.getElementsByTagName("body")[0].getBoundingClientRect();
     wordList.forEach((word)=>{
-        if (wordsToSkip.get(word) > 0) wordsToSkip.set(word, wordsToSkip.get(word) - 1);
+        const skipCount = wordsToSkip.get(word);
+        if (skipCount !== undefined && skipCount > 0) wordsToSkip.set(word, skipCount - 1);
         else {
             wordsOccurrence.set(word, (wordsOccurrence.get(word) ?? 0) + 1);
             const wordObj = new Word(word, 0, 0);
             body?.appendChild(wordObj.element);
+            const poemRect = poem?.getBoundingClientRect();
+            if (poemRect === undefined) {
+                console.log("Error: poemRect is undefined");
+                return;
+            }
             do {
                 wordObj.element.style.left = Math.random() * bodyRect.width * 0.9 + 50 + "px";
                 wordObj.element.style.top = Math.random() * bodyRect.height * 0.9 + 50 + "px";
-            }while (rectIntersects(document.getElementById("poem")?.getBoundingClientRect(), wordObj.element.getBoundingClientRect()));
+            }while (rectIntersects(poemRect, wordObj.element.getBoundingClientRect()));
         }
     });
 }
@@ -726,21 +755,30 @@ body.addEventListener("dragover", (event)=>{
 });
 body.addEventListener("drop", (event)=>{
     event.preventDefault();
-    const dataList = event.dataTransfer.getData("text/plain").split(";");
-    event.dataTransfer?.setData("text/plain", dataList.join(";"));
-    const element = document.getElementById(dataList[0]);
-    (element?.style).leftTemp = dataList[1];
-    (element?.style).topTemp = dataList[2];
-    try {
-        if (Array.from(event.target.classList).find((className)=>className === "type-word") !== undefined) {
-            event.target.parentElement.appendChild(element);
-            (element?.style).destId = event.target.parentElement.id;
+    const dataTransfer = event.dataTransfer;
+    if (dataTransfer) {
+        const dataList = dataTransfer.getData("text/plain").split(";");
+        dataTransfer.setData("text/plain", dataList.join(";"));
+        const element = document.getElementById(dataList[0]);
+        if (element) {
+            element.dataset.leftTemp = dataList[1];
+            element.dataset.topTemp = dataList[2];
         } else {
-            event.target.appendChild(element);
-            (element?.style).destId = event.target.id;
+            console.log("Error: dropped element not found");
+            return false;
         }
-    } catch (error) {
-        console.warn(error);
+        try {
+            const targetElement = event.target;
+            if (Array.from(targetElement.classList).find((className)=>className === "type-word") !== undefined) {
+                targetElement.parentElement?.appendChild(element);
+                element.dataset.destId = targetElement.parentElement?.id;
+            } else {
+                targetElement.appendChild(element);
+                element.dataset.destId = targetElement.id;
+            }
+        } catch (error) {
+            console.warn(error);
+        }
     }
     return false;
 });
