@@ -586,11 +586,11 @@ class Word {
         this.word = word;
         this.x = x;
         this.y = y;
-        this.wordNumber = Word.wordInstances.get(word) ?? 1;
+        this.wordNumber = Word.wordInstances.get(word) ?? 0;
         this.element = document.createElement("div");
         this.element.classList.add("type-word");
         this.element.classList.add(word);
-        this.element.id = word;
+        this.element.id = word + "-" + this.wordNumber;
         this.element.innerHTML = word;
         this.element.draggable = true;
         this.element.style.position = "absolute";
@@ -599,7 +599,7 @@ class Word {
         this.element.addEventListener("drag", handleDrag);
         this.element.style.left = x + "px";
         this.element.style.top = y + "px";
-        Word.wordInstances.set(word, (Word.wordInstances.get(word) ?? 0) + 1);
+        Word.wordInstances.set(word, this.wordNumber + 1);
         Word.elementToWord.set(this.element, this);
     }
     // Currently unused - forces words that this collides to move.
@@ -617,6 +617,12 @@ class Word {
         }
     }
 }
+function clearPoem() {
+    const poem = document.getElementById("poem");
+    if (poem) poem.innerHTML = "";
+    saveWordsInBox();
+}
+window.clearPoem = clearPoem;
 function handleDragStart(event) {
     this.dataset.tempLeft = String(event.clientX - event.target.getBoundingClientRect().x);
     this.dataset.tempTop = String(event.clientY - event.target.getBoundingClientRect().y);
@@ -636,28 +642,29 @@ function handleDragEnd(event) {
     const wordRect = event.srcElement?.getBoundingClientRect();
     const last_x = Number(this.dataset.lastX);
     const last_y = Number(this.dataset.lastY);
-    if (last_x === undefined || last_y === undefined) {
-        console.log("Error: last_x or last_y is undefined");
+    if (Number.isNaN(last_x) || Number.isNaN(last_y)) {
+        console.log("Error: last_x or last_y is NaN");
         return;
     }
     const srcElement = event.srcElement;
-    const leftTemp = Number(srcElement.dataset.leftTemp);
-    const topTemp = Number(srcElement.dataset.topTemp);
+    const tempLeft = Number(srcElement.dataset.tempLeft);
+    const tempTop = Number(srcElement.dataset.tempTop);
+    if (Number.isNaN(tempLeft) || Number.isNaN(tempTop)) console.log("Error: tempLeft or tempTop is undefined");
     const isClickInBox = poemRect && last_x > poemRect.x && last_y > poemRect.y && last_x < poemRect.x + poemRect.width && last_y < poemRect.y + poemRect.height;
     let newX, newY;
     // the -3 is somehow related to the border width or something. It keeps the div centered.
     if (srcElement.dataset.destId !== "poem") {
-        newX = last_x - leftTemp - 2;
-        newY = last_y - topTemp - 2;
+        newX = last_x - tempLeft - 2;
+        newY = last_y - tempTop - 2;
     } else {
         const poemRect = poemEl?.getBoundingClientRect(); // Add null check for poemRect
-        newX = last_x - (poemRect?.x ?? 0) - leftTemp - 2;
-        newY = last_y - (poemRect?.y ?? 0) - topTemp - 2;
+        newX = last_x - (poemRect?.x ?? 0) - tempLeft - 2;
+        newY = last_y - (poemRect?.y ?? 0) - tempTop - 2;
     }
     srcElement.style.left = `${newX}px`;
     srcElement.style.top = `${newY}px`;
-    srcElement.dataset.leftTemp = "0";
-    srcElement.dataset.topTemp = "0";
+    srcElement.dataset.tempLeft = "0";
+    srcElement.dataset.tempTop = "0";
     // Modify our internal Word representation
     const word = Word.elementToWord.get(srcElement);
     if (word) {
@@ -761,8 +768,8 @@ body.addEventListener("drop", (event)=>{
         dataTransfer.setData("text/plain", dataList.join(";"));
         const element = document.getElementById(dataList[0]);
         if (element) {
-            element.dataset.leftTemp = dataList[1];
-            element.dataset.topTemp = dataList[2];
+            element.dataset.tempLeft = dataList[1];
+            element.dataset.tempTop = dataList[2];
         } else {
             console.log("Error: dropped element not found");
             return false;
